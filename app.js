@@ -21,6 +21,13 @@ window.IdeaHubReady = (async function () {
     location.href = page;
   }
 
+  async function demoUnlock(id) {
+    return api('/api/unlocks', {
+      method: 'POST',
+      body: JSON.stringify({ id })
+    });
+  }
+
   function showError(form, text) {
     let message = form.querySelector('.error');
     if (!message) {
@@ -50,8 +57,10 @@ window.IdeaHubReady = (async function () {
   const ideas = state.ideas;
   const unlocks = state.unlocks;
   const messages = state.messages;
+  const sampleContacts = state.sample_contacts || {};
   const page = location.pathname.split('/').pop().replace('.html', '') || 'index';
-  const selected = () => localStorage.getItem('selected') || '';
+  const selected = () => new URLSearchParams(location.search).get('id') ||
+    localStorage.getItem('selected') || '';
   const selectIdea = id => localStorage.setItem('selected', id);
   const samples = {
     waterwise: 'WaterWise Drip',
@@ -63,6 +72,9 @@ window.IdeaHubReady = (async function () {
     me && unlocks.some(unlock => unlock.id === id && unlock.by === me.name)
   );
   const showErrorForForm = showError;
+  document.querySelectorAll('[data-print]').forEach(button => {
+    button.onclick = () => window.print();
+  });
 
   function onSubmit(action) {
     const form = document.querySelector('form');
@@ -185,28 +197,30 @@ window.IdeaHubReady = (async function () {
       const link = /^https?:\/\//i.test(idea.link)
         ? '<p><a href="' + esc(idea.link) + '" target="_blank" rel="noopener">See the creation</a></p>'
         : '';
+      const identity = idea.owner
+        ? ' · by ' + esc(idea.owner)
+        : ' · identity hidden until demo unlock';
       document.getElementById('idea').innerHTML =
-        '<h2>' + esc(idea.title) + '</h2><span class="cat">' + esc(idea.cat) + ' · by ' +
-        esc(idea.owner) + '</span><div class="row"><span class="pill">Asking Rs ' +
+        '<h2>' + esc(idea.title) + '</h2><span class="cat">' + esc(idea.cat) + identity +
+        '</span><div class="row"><span class="pill">Asking Rs ' +
         Number(idea.ask).toLocaleString('en-IN') + '</span><span class="pill">' +
         esc(idea.equity) + '% equity</span></div><div class="box"><b>Problem</b><br>' +
         esc(idea.problem) + '</div><div class="box"><b>Solution</b><br>' +
         esc(idea.solution) + '</div>' + link +
+        (hasUnlocked(idea.id) ? '' :
+          '<p class="muted">Demo unlock only; no money moves.</p>') +
         (hasUnlocked(idea.id) ? '<div class="box"><b>Contact</b><br>' +
           esc(idea.email || '') + '<br>' + esc(idea.phone || '') + '</div>' : '') +
-        '<div class="row"><button class="btn" id="pdf">Pitch PDF</button><button class="btn dark" id="unlock">' +
-        (hasUnlocked(idea.id) ? 'Send a message' : 'Unlock chat · Rs ' + fee +
-          ' (simulated)') + '</button></div><div id="chat"></div>';
+        '<div class="row"><button class="btn" id="pdf">Print pitch</button><button class="btn dark" id="unlock">' +
+        (hasUnlocked(idea.id) ? 'Send a message' : 'Pay (demo) · Rs ' + fee) +
+        '</button></div><div id="chat"></div>';
 
       document.getElementById('pdf').onclick = () => window.print();
       document.getElementById('unlock').onclick = async function () {
         if (!needRole('investor')) return;
         if (!hasUnlocked(idea.id)) {
           try {
-            await api('/api/unlocks', {
-              method: 'POST',
-              body: JSON.stringify({ id: idea.id })
-            });
+            await demoUnlock(idea.id);
             location.reload();
           } catch (error) {
             showErrorForForm(document.getElementById('idea'), error.message);
@@ -231,17 +245,11 @@ window.IdeaHubReady = (async function () {
   if (page.startsWith('pay-') && needRole('investor')) {
     const id = page.replace('pay-', '');
     if (hasUnlocked(id)) go('chat-' + id + '.html');
-    const link = document.querySelector('a[href="chat-' + id + '.html"]');
-    if (link) {
-      link.onclick = async function (event) {
-        event.preventDefault();
+    const button = document.getElementById('pay');
+    if (button) {
+      button.onclick = async function () {
         try {
-          if (!hasUnlocked(id)) {
-            await api('/api/unlocks', {
-              method: 'POST',
-              body: JSON.stringify({ id })
-            });
-          }
+          await demoUnlock(id);
           go('chat-' + id + '.html');
         } catch (error) {
           const panel = document.querySelector('.panel');
@@ -261,6 +269,16 @@ window.IdeaHubReady = (async function () {
     if (!hasUnlocked(id)) {
       go('pay-' + id + '.html');
     } else {
+      const contact = sampleContacts[id];
+      const panel = document.querySelector('.panel');
+      const form = panel && panel.querySelector('form');
+      if (contact && panel && form) {
+        const box = document.createElement('div');
+        box.className = 'box';
+        box.innerHTML = '<b>' + esc(contact.name) + '</b><br>' +
+          esc(contact.email) + '<br>Sample contact';
+        panel.insertBefore(box, form);
+      }
       onSubmit(async function ([text], form) {
         if (!text) return showError(form, 'Write a message first.');
         await api('/api/messages', {

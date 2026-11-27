@@ -19,3 +19,10 @@ Run the backend tests with:
 ```sh
 python -m unittest discover -s tests -v
 ```
+
+## Demo unlocks
+
+The unlock button is a prototype-only demo action. It does not process a
+payment or move money; it reveals the sample contact details and enables
+messaging within the demo. Do not treat demo pitches, identities, or amounts as
+real investment opportunities.

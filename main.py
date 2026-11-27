@@ -17,6 +17,11 @@ DATABASE_PATH = Path(os.environ.get(
 	"DATABASE_PATH", INSTANCE_DIR / "hackathonsos.sqlite3"
 ))
 SAMPLE_IDEAS = {"waterwise", "rentcircle", "classpulse"}
+SAMPLE_CONTACTS = {
+	"waterwise": {"name": "demo_farmer", "email": "demo_farmer@example.com"},
+	"rentcircle": {"name": "demo_renter", "email": "demo_renter@example.com"},
+	"classpulse": {"name": "demo_teacher", "email": "demo_teacher@example.com"},
+}
 SECTORS = {"Any", "AgriTech", "FinTech", "EdTech", "HealthTech", "Other"}
 TRACKER_STAGES = {"To contact", "Contacted", "In talks", "Funded", "Passed"}
 ASSET_SUFFIXES = {".html", ".htm", ".js", ".css", ".png", ".jpg", ".jpeg",
@@ -113,8 +118,6 @@ def initialize_database():
 				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 			);
 		""")
-
-
 initialize_database()
 
 
@@ -179,7 +182,7 @@ def get_state():
 		user = current_user(connection)
 		user_id = user["id"] if user else None
 		ideas = connection.execute("""
-			SELECT p.id, u.name AS owner, p.title, p.category AS cat,
+			SELECT p.id, p.owner_id, u.name AS owner, p.title, p.category AS cat,
 				   p.problem, p.solution, p.funding_ask AS ask,
 				   p.equity, p.link, u.email, u.phone
 			FROM pitches p JOIN users u ON u.id = p.owner_id
@@ -204,12 +207,26 @@ def get_state():
 		idea_data = []
 		for idea in ideas:
 			item = {key: idea[key] for key in
-					("id", "owner", "title", "cat", "problem", "solution",
+					("id", "title", "cat", "problem", "solution",
 					 "ask", "equity", "link")}
-			if (user and user["role"] == "investor" and
+			if (user and user["role"] == "developer" and
+					idea["owner_id"] == user_id):
+				item["owner"] = idea["owner"]
+			elif (user and user["role"] == "investor" and
 					idea["id"] in unlocked_ids):
-				item.update(email=idea["email"], phone=idea["phone"])
+				item.update(
+					owner=idea["owner"],
+					email=idea["email"],
+					phone=idea["phone"],
+				)
 			idea_data.append(item)
+
+		sample_contacts = {}
+		if user and user["role"] == "investor":
+			sample_contacts = {
+				pitch_id: SAMPLE_CONTACTS[pitch_id]
+				for pitch_id in unlocked_ids if pitch_id in SAMPLE_CONTACTS
+			}
 
 		messages = []
 		views = {}
@@ -220,6 +237,8 @@ def get_state():
 				SELECT m.pitch_id AS id, investor.name AS 'from', m.text
 				FROM messages m
 				JOIN users investor ON investor.id = m.from_user_id
+				JOIN unlocks x
+				  ON x.investor_id = m.from_user_id AND x.pitch_id = m.pitch_id
 				JOIN pitches p ON p.id = m.pitch_id
 				WHERE p.owner_id = ? ORDER BY m.id
 			""", (user_id,))]
@@ -245,6 +264,7 @@ def get_state():
 			user=public_user(user) if user else None,
 			ideas=idea_data,
 			unlocks=unlocks,
+			sample_contacts=sample_contacts,
 			messages=messages,
 			views=views,
 			profile=profile,
@@ -371,7 +391,7 @@ def create_unlock():
 				INSERT OR IGNORE INTO unlocks (investor_id, pitch_id)
 				VALUES (?, ?)
 			""", (user["id"], pitch_id))
-		return jsonify(ok=True)
+		return jsonify(ok=True, demo=True)
 	except ValueError as error:
 		return api_error(str(error), 400)
 
