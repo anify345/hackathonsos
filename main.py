@@ -1,5 +1,7 @@
 """Flask app and SQLite API for the Hackathon SOS website."""
-
+import re
+from authlib.integrations.flask_client import OAuth
+from flask import Flask, abort, jsonify, redirect, request, send_file, session, url_for
 import os
 import secrets
 import sqlite3
@@ -117,6 +119,12 @@ def initialize_database():
 				stage TEXT NOT NULL,
 				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 			);
+			CREATE TABLE IF NOT EXISTS oauth_accounts (
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    PRIMARY KEY (provider, provider_user_id)
+);
 		""")
 initialize_database()
 
@@ -522,6 +530,107 @@ def delete_tracker_entry(entry_id):
 		""", (entry_id, user["id"]))
 	return jsonify(ok=True)
 
+def fetch_identity(provider, client, token):
+    """Return (provider_user_id, verified_email, suggested_name)."""
+    if provider == "google":
+        info = token.get("userinfo") or {}
+        if not info.get("email") or not info.get("email_verified"):
+            raise ValueError("Your Google email is not verified.")
+        return info["sub"], info["email"], info.get("name") or info["email"].split("@")[0]
+    if provider == "github":
+        profile = client.get("user", token=token).json()
+        emails = client.get("user/emails", token=token).json()
+        email = next((e["email"] for e in emails
+                      if e.get("primary") and e.get("verified")), None)
+        if not email:
+            raise ValueError("Your GitHub account has no verified email.")
+        return str(profile["id"]), email, profile["login"]
+    raise ValueError("Unknown provider.")
 
+
+def unique_username(connection, suggested):
+    base = re.sub(r"[^A-Za-z0-9_.-]", "", suggested)[:30] or "user"
+    if base.lower().startswith("demo_"):
+        base = "u" + base
+    candidate, n = base, 1
+    while connection.execute(
+        "SELECT 1 FROM users WHERE name = ? COLLATE NOCASE", (candidate,)
+    ).fetchone():
+        n += 1
+        candidate = f"{base}{n}"
+    return candidate
+
+
+@app.get("/auth/<provider>/login")
+def oauth_login(provider):
+    if provider not in PROVIDERS:
+        abort(404)
+    role = request.args.get("role", "")
+    if role in {"developer", "investor"}:
+        session["oauth_role"] = role
+    else:
+        session.pop("oauth_role", None)
+    redirect_uri = url_for("oauth_callback", provider=provider, _external=True)
+    return oauth.create_client(provider).authorize_redirect(redirect_uri)
+
+
+@app.get("/auth/<provider>/callback")
+def oauth_callback(provider):
+    if provider not in PROVIDERS:
+        abort(404)
+    client = oauth.create_client(provider)
+    try:
+        token = client.authorize_access_token()
+        provider_id, email, suggested = fetch_identity(provider, client, token)
+    except Exception as error:
+        message = str(error) if isinstance(error, ValueError) else "Sign-in failed."
+        return redirect("/?auth_error=" + message.replace(" ", "+"))
+
+    role = session.pop("oauth_role", None)
+    with database() as connection:
+        link = connection.execute("""
+            SELECT user_id FROM oauth_accounts
+            WHERE provider = ? AND provider_user_id = ?
+        """, (provider, provider_id)).fetchone()
+        if link:
+            user_id = link["user_id"]            # returning user
+        else:
+            if role not in {"developer", "investor"}:
+                return redirect("/?auth_error=Choose+developer+or+investor+first")
+            name = unique_username(connection, suggested)
+            cursor = connection.execute("""
+                INSERT INTO users (name, password_hash, email, phone, role)
+                VALUES (?, ?, ?, '', ?)
+            """, (name,
+                  generate_password_hash(secrets.token_urlsafe(32), method="pbkdf2:sha256"),
+                  email, role))
+            user_id = cursor.lastrowid
+            connection.execute("""
+                INSERT INTO oauth_accounts (provider, provider_user_id, user_id)
+                VALUES (?, ?, ?)
+            """, (provider, provider_id, user_id))
+    session.clear()
+    session["user_id"] = user_id
+    return redirect("/")
+
+oauth = OAuth(app)
+PROVIDERS = {"google", "github"}
+
+oauth.register(
+    name="google",
+    client_id=os.environ.get("GOOGLE_CLIENT_ID"),
+    client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
+)
+oauth.register(
+    name="github",
+    client_id=os.environ.get("GITHUB_CLIENT_ID"),
+    client_secret=os.environ.get("GITHUB_CLIENT_SECRET"),
+    access_token_url="https://github.com/login/oauth/access_token",
+    authorize_url="https://github.com/login/oauth/authorize",
+    api_base_url="https://api.github.com/",
+    client_kwargs={"scope": "user:email"},
+)
 if __name__ == "__main__":
 	app.run(debug=True)
