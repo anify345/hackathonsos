@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Admin panel | Idea Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="admin.css" rel="stylesheet">
+</head>
+<body>
+<header class="wrap">
+  <a class="logo" href="index.html"><b>Idea Hub</b><small>by The Losers</small></a>
+  <nav><a href="browse.html">Browse ideas</a><a href="how-it-works.html">How it works</a><a href="pricing.html">Pricing</a><a href="guides.html">Guides</a></nav>
+  <div class="actions"><a class="btn" href="admin.html">Admin panel</a><button class="btn dark" id="logout">Log out</button></div>
+</header>
+<main class="wrap admin-main" id="admin-content">
+  <h1>Admin panel</h1>
+  <p class="muted">Manage user accounts and pitches.</p>
+  <div class="stats">
+    <div class="stat"><span>Users</span><b id="admin-user-count">—</b></div>
+    <div class="stat"><span>Pitches</span><b id="admin-pitch-count">—</b></div>
+  </div>
+  <section class="card admin-card">
+    <div class="section-heading"><h2>Users</h2></div>
+    <div id="admin-users"><p class="muted">Loading users…</p></div>
+  </section>
+  <section class="card admin-card">
+    <div class="section-heading"><h2>Pitches</h2></div>
+    <div id="admin-pitches"><p class="muted">Loading pitches…</p></div>
+  </section>
+</main>
+<footer class="wrap"><b>Idea Hub</b> administration</footer>
+<script src="app.js"></script>
+</body>
+</html>

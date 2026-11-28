@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Admin log in | Idea Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="admin.css" rel="stylesheet">
+</head>
+<body>
+<header class="wrap">
+  <a class="logo" href="index.html"><b>Idea Hub</b><small>by The Losers</small></a>
+  <nav><a href="browse.html">Browse ideas</a><a href="how-it-works.html">How it works</a><a href="pricing.html">Pricing</a><a href="guides.html">Guides</a></nav>
+  <div class="actions"><a class="btn" href="login.html">Log in</a><a class="btn dark" href="signup-developer.html">Pitch your idea</a></div>
+</header>
+<main class="wrap">
+  <div class="card panel">
+    <h2>Admin log in</h2>
+    <p class="muted">This sign-in is only for accounts assigned the admin role.</p>
+    <form>
+      <label>Username<input name="username" type="text" required autocomplete="username"></label>
+      <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+      <button class="btn dark full">Log in</button>
+    </form>
+    <div class="oauth-options">
+      <p class="muted oauth-divider">or continue with</p>
+      <a class="btn full" href="/auth/google/login">Continue with Google</a>
+      <a class="btn full" href="/auth/github/login">Continue with GitHub</a>
+    </div>
+    <p><a href="login.html">Back to login options</a></p>
+  </div>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
