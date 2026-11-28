@@ -18,9 +18,9 @@ DATABASE_PATH = Path(os.environ.get(
 ))
 SAMPLE_IDEAS = {"waterwise", "rentcircle", "classpulse"}
 SAMPLE_CONTACTS = {
-	"waterwise": {"name": "demo_farmer", "email": "demo_farmer@example.com"},
-	"rentcircle": {"name": "demo_renter", "email": "demo_renter@example.com"},
-	"classpulse": {"name": "demo_teacher", "email": "demo_teacher@example.com"},
+	"waterwise": {"name": "ankit_katuwal", "email": "ankit_katuwal@example.com"},
+	"rentcircle": {"name": "basanta@khatri", "email": "basanta@khatri@example.com"},
+	"classpulse": {"name": "krishnabhagat", "email": "krishnabhagat@example.com"},
 }
 SECTORS = {"Any", "AgriTech", "FinTech", "EdTech", "HealthTech", "Other"}
 TRACKER_STAGES = {"To contact", "Contacted", "In talks", "Funded", "Passed"}
