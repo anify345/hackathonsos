@@ -99,6 +99,10 @@ window.IdeaHubReady = (async function () {
   }
 
   function enter(defaultPage, role) {
+    if (role === 'admin') {
+      go('admin.html');
+      return;
+    }
     const next = localStorage.getItem('next') || '';
     localStorage.removeItem('next');
     const fits = role === 'investor'
@@ -110,7 +114,11 @@ window.IdeaHubReady = (async function () {
   if (me) {
     const box = document.querySelector('.actions');
     if (box) {
-      box.innerHTML = '<a class="btn" href="dashboard-' + me.role + '.html">Dashboard (' +
+      const dashboard = me.role === 'admin'
+        ? 'admin.html'
+        : 'dashboard-' + me.role + '.html';
+      const label = me.role === 'admin' ? 'Admin panel' : 'Dashboard';
+      box.innerHTML = '<a class="btn" href="' + dashboard + '">' + label + ' (' +
         esc(me.name) + ')</a><button class="btn dark" id="logout">Log out</button>';
       document.getElementById('logout').onclick = async function () {
         try {
@@ -314,6 +322,74 @@ window.IdeaHubReady = (async function () {
     area.innerHTML = html || '<p class="muted">You have not unlocked any ideas yet.</p><br>';
     area.onclick = event => {
       if (event.target.dataset.id) selectIdea(event.target.dataset.id);
+    };
+  }
+
+  if (page === 'admin') {
+    const panel = document.getElementById('admin-content');
+    const usersArea = document.getElementById('admin-users');
+    const pitchesArea = document.getElementById('admin-pitches');
+    const loadAdminData = async function () {
+      const data = await api('/api/admin');
+      document.getElementById('admin-user-count').textContent = data.users.length;
+      document.getElementById('admin-pitch-count').textContent = data.pitches.length;
+      usersArea.innerHTML = data.users.length ? '<div class="table-wrap"><table><thead><tr>' +
+        '<th>User</th><th>Email</th><th>Phone</th><th>Role</th><th>Actions</th>' +
+        '</tr></thead><tbody>' + data.users.map(function (user) {
+          const current = user.name.toLowerCase() === me.name.toLowerCase();
+          return '<tr><td>' + esc(user.name) + '</td><td>' + esc(user.email) +
+            '</td><td>' + esc(user.phone) + '</td><td><select data-user-role="' +
+            user.id + '"' + (current ? ' disabled' : '') + '><option value="developer"' +
+            (user.role === 'developer' ? ' selected' : '') + '>Developer</option>' +
+            '<option value="investor"' + (user.role === 'investor' ? ' selected' : '') +
+            '>Investor</option><option value="admin"' +
+            (user.role === 'admin' ? ' selected' : '') + '>Admin</option></select></td>' +
+            '<td class="actions-cell"><button class="btn small" data-admin-action="save-role" ' +
+            'data-user-id="' + user.id + '"' + (current ? ' disabled' : '') +
+            '>Save role</button><button class="btn small danger" data-admin-action="delete-user" ' +
+            'data-user-id="' + user.id + '"' + (current ? ' disabled' : '') +
+            '>Delete</button></td></tr>';
+        }).join('') + '</tbody></table></div>' : '<p class="muted">No users found.</p>';
+      pitchesArea.innerHTML = data.pitches.length ? '<div class="table-wrap"><table><thead><tr>' +
+        '<th>Pitch</th><th>Owner</th><th>Category</th><th>Ask</th><th>Details</th><th></th>' +
+        '</tr></thead><tbody>' + data.pitches.map(function (pitch) {
+          return '<tr><td><b>' + esc(pitch.title) + '</b></td><td>' + esc(pitch.owner) +
+            '</td><td>' + esc(pitch.cat) + '</td><td>Rs ' +
+            Number(pitch.ask).toLocaleString('en-IN') + '</td><td><details><summary>View</summary>' +
+            '<p><b>Problem:</b> ' + esc(pitch.problem) + '</p><p><b>Solution:</b> ' +
+            esc(pitch.solution) + '</p></details></td><td><button class="btn small danger" ' +
+            'data-admin-action="delete-pitch" data-pitch-id="' + esc(pitch.id) +
+            '">Delete</button></td></tr>';
+        }).join('') + '</tbody></table></div>' : '<p class="muted">No pitches found.</p>';
+    };
+
+    loadAdminData().catch(error => showError(panel, error.message));
+    panel.onclick = async function (event) {
+      const button = event.target.closest('[data-admin-action]');
+      if (!button) return;
+      const action = button.dataset.adminAction;
+      try {
+        if (action === 'save-role') {
+          const select = usersArea.querySelector(
+            '[data-user-role="' + button.dataset.userId + '"]'
+          );
+          await api('/api/admin/users/' + button.dataset.userId, {
+            method: 'PATCH',
+            body: JSON.stringify({ role: select.value })
+          });
+        } else if (action === 'delete-user') {
+          if (!window.confirm('Delete this account and its associated data?')) return;
+          await api('/api/admin/users/' + button.dataset.userId, { method: 'DELETE' });
+        } else if (action === 'delete-pitch') {
+          if (!window.confirm('Delete this pitch?')) return;
+          await api('/api/admin/pitches/' + encodeURIComponent(button.dataset.pitchId), {
+            method: 'DELETE'
+          });
+        }
+        await loadAdminData();
+      } catch (error) {
+        showError(panel, error.message);
+      }
     };
   }
 

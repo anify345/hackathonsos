@@ -67,65 +67,95 @@ def database():
 
 
 def initialize_database():
-	with database() as connection:
-		connection.executescript("""
-			CREATE TABLE IF NOT EXISTS users (
-				id INTEGER PRIMARY KEY,
-				name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-				password_hash TEXT NOT NULL,
-				email TEXT NOT NULL,
-				phone TEXT NOT NULL,
-				role TEXT NOT NULL CHECK (role IN ('developer', 'investor')),
-				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-			);
-			CREATE TABLE IF NOT EXISTS pitches (
-				id TEXT PRIMARY KEY,
-				owner_id INTEGER NOT NULL REFERENCES users(id),
-				title TEXT NOT NULL,
-				category TEXT NOT NULL,
-				problem TEXT NOT NULL,
-				solution TEXT NOT NULL,
-				funding_ask INTEGER NOT NULL,
-				equity REAL NOT NULL,
-				link TEXT NOT NULL DEFAULT '',
-				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-			);
-			CREATE TABLE IF NOT EXISTS unlocks (
-				investor_id INTEGER NOT NULL REFERENCES users(id),
-				pitch_id TEXT NOT NULL,
-				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				PRIMARY KEY (investor_id, pitch_id)
-			);
-			CREATE TABLE IF NOT EXISTS messages (
-				id INTEGER PRIMARY KEY,
-				pitch_id TEXT NOT NULL,
-				from_user_id INTEGER NOT NULL REFERENCES users(id),
-				text TEXT NOT NULL,
-				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-			);
-			CREATE TABLE IF NOT EXISTS investor_profiles (
-				investor_id INTEGER PRIMARY KEY REFERENCES users(id),
-				sector TEXT NOT NULL,
-				max_amount INTEGER NOT NULL
-			);
-			CREATE TABLE IF NOT EXISTS pitch_views (
-				pitch_id TEXT PRIMARY KEY,
-				view_count INTEGER NOT NULL DEFAULT 0
-			);
-			CREATE TABLE IF NOT EXISTS tracker_entries (
-				id INTEGER PRIMARY KEY,
-				user_id INTEGER NOT NULL REFERENCES users(id),
-				name TEXT NOT NULL,
-				stage TEXT NOT NULL,
-				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-			);
-			CREATE TABLE IF NOT EXISTS oauth_accounts (
-    provider TEXT NOT NULL,
-    provider_user_id TEXT NOT NULL,
-    user_id INTEGER NOT NULL REFERENCES users(id),
-    PRIMARY KEY (provider, provider_user_id)
-);
-		""")
+    with database() as connection:
+        connection.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                password_hash TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('developer', 'investor', 'admin')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS pitches (
+                id TEXT PRIMARY KEY,
+                owner_id INTEGER NOT NULL REFERENCES users(id),
+                title TEXT NOT NULL,
+                category TEXT NOT NULL,
+                problem TEXT NOT NULL,
+                solution TEXT NOT NULL,
+                funding_ask INTEGER NOT NULL,
+                equity REAL NOT NULL,
+                link TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS unlocks (
+                investor_id INTEGER NOT NULL REFERENCES users(id),
+                pitch_id TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (investor_id, pitch_id)
+            );
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY,
+                pitch_id TEXT NOT NULL,
+                from_user_id INTEGER NOT NULL REFERENCES users(id),
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS investor_profiles (
+                investor_id INTEGER PRIMARY KEY REFERENCES users(id),
+                sector TEXT NOT NULL,
+                max_amount INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS pitch_views (
+                pitch_id TEXT PRIMARY KEY,
+                view_count INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS tracker_entries (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                name TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS oauth_accounts (
+                provider TEXT NOT NULL,
+                provider_user_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                PRIMARY KEY (provider, provider_user_id)
+            );
+        """)
+        user_table = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+        ).fetchone()
+        if "'admin'" not in user_table["sql"]:
+            connection.execute("PRAGMA foreign_keys = OFF")
+            try:
+                connection.executescript("""
+                    BEGIN IMMEDIATE;
+                    CREATE TABLE users_new (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        email TEXT NOT NULL,
+                        phone TEXT NOT NULL,
+                        role TEXT NOT NULL CHECK (role IN ('developer', 'investor', 'admin')),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    INSERT INTO users_new (id, name, password_hash, email, phone, role, created_at)
+                    SELECT id, name, password_hash, email, phone, role, created_at FROM users;
+                    DROP TABLE users;
+                    ALTER TABLE users_new RENAME TO users;
+                    COMMIT;
+                """)
+            except Exception:
+                connection.rollback()
+                raise
+            finally:
+                connection.execute("PRAGMA foreign_keys = ON")
+
+
 initialize_database()
 
 
@@ -166,12 +196,27 @@ def public_user(user):
 	return {"name": user["name"], "role": user["role"]}
 
 
+def is_admin(user):
+	return bool(user and user["role"] == "admin")
+
+
 @app.get("/")
 def index():
 	index_file = BASE_DIR / "index.html"
 	if not index_file.is_file():
 		abort(404)
 	return send_file(index_file)
+
+
+@app.get("/admin.html")
+def admin_page():
+	with database() as connection:
+		if not is_admin(current_user(connection)):
+			abort(403)
+	admin_file = BASE_DIR / "admin.html"
+	if not admin_file.is_file():
+		abort(404)
+	return send_file(admin_file)
 
 
 @app.get("/<path:asset>")
@@ -280,6 +325,133 @@ def get_state():
 		)
 
 
+@app.get("/api/admin")
+def admin_data():
+	with database() as connection:
+		if not is_admin(current_user(connection)):
+			return api_error("Admin access required.", 403)
+		users = [dict(row) for row in connection.execute("""
+			SELECT id, name, email, phone, role, created_at
+			FROM users ORDER BY id
+		""")]
+		pitches = [dict(row) for row in connection.execute("""
+			SELECT p.id, p.title, p.category AS cat, p.problem, p.solution,
+				   p.funding_ask AS ask, p.equity, p.created_at,
+				   p.owner_id, u.name AS owner
+			FROM pitches p JOIN users u ON u.id = p.owner_id
+			ORDER BY p.created_at DESC, p.id
+		""")]
+	return jsonify(users=users, pitches=pitches)
+
+
+@app.patch("/api/admin/users/<int:user_id>")
+def update_admin_user(user_id):
+	try:
+		data = payload()
+		role = text_value(data, "role", maximum=20)
+		if role not in {"developer", "investor", "admin"}:
+			return api_error("Role must be developer, investor, or admin.", 400)
+		with database() as connection:
+			connection.execute("BEGIN IMMEDIATE")
+			admin = current_user(connection)
+			if not is_admin(admin):
+				return api_error("Admin access required.", 403)
+			target = connection.execute(
+				"SELECT id, role FROM users WHERE id = ?", (user_id,)
+			).fetchone()
+			if not target:
+				return api_error("User not found.", 404)
+			if target["role"] == "admin" and role != "admin":
+				admin_count = connection.execute(
+					"SELECT COUNT(*) FROM users WHERE role = 'admin'"
+				).fetchone()[0]
+				if admin_count <= 1:
+					return api_error("Cannot demote the last admin.", 409)
+				if target["id"] == admin["id"]:
+					return api_error("You cannot change your own admin role.", 409)
+			connection.execute(
+				"UPDATE users SET role = ? WHERE id = ?", (role, user_id)
+			)
+		return jsonify(ok=True)
+	except ValueError as error:
+		return api_error(str(error), 400)
+
+
+@app.delete("/api/admin/users/<int:user_id>")
+def delete_admin_user(user_id):
+	with database() as connection:
+		connection.execute("BEGIN IMMEDIATE")
+		admin = current_user(connection)
+		if not is_admin(admin):
+			return api_error("Admin access required.", 403)
+		target = connection.execute(
+			"SELECT id, role FROM users WHERE id = ?", (user_id,)
+		).fetchone()
+		if not target:
+			return api_error("User not found.", 404)
+		if target["id"] == admin["id"]:
+			return api_error("You cannot delete your own account.", 409)
+		if target["role"] == "admin":
+			admin_count = connection.execute(
+				"SELECT COUNT(*) FROM users WHERE role = 'admin'"
+			).fetchone()[0]
+			if admin_count <= 1:
+				return api_error("Cannot delete the last admin.", 409)
+		pitch_ids = [row["id"] for row in connection.execute(
+			"SELECT id FROM pitches WHERE owner_id = ?", (user_id,)
+		)]
+		if pitch_ids:
+			placeholders = ",".join("?" for _ in pitch_ids)
+			connection.execute(
+				f"DELETE FROM messages WHERE from_user_id = ? OR pitch_id IN ({placeholders})",
+				(user_id, *pitch_ids),
+			)
+			connection.execute(
+				f"DELETE FROM unlocks WHERE investor_id = ? OR pitch_id IN ({placeholders})",
+				(user_id, *pitch_ids),
+			)
+			connection.execute(
+				f"DELETE FROM pitch_views WHERE pitch_id IN ({placeholders})",
+				pitch_ids,
+			)
+			connection.execute("DELETE FROM pitches WHERE owner_id = ?", (user_id,))
+		else:
+			connection.execute(
+				"DELETE FROM messages WHERE from_user_id = ?", (user_id,)
+			)
+			connection.execute(
+				"DELETE FROM unlocks WHERE investor_id = ?", (user_id,)
+			)
+		connection.execute(
+			"DELETE FROM investor_profiles WHERE investor_id = ?", (user_id,)
+		)
+		connection.execute(
+			"DELETE FROM tracker_entries WHERE user_id = ?", (user_id,)
+		)
+		connection.execute(
+			"DELETE FROM oauth_accounts WHERE user_id = ?", (user_id,)
+		)
+		connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
+	return jsonify(ok=True)
+
+
+@app.delete("/api/admin/pitches/<pitch_id>")
+def delete_admin_pitch(pitch_id):
+	with database() as connection:
+		if not is_admin(current_user(connection)):
+			return api_error("Admin access required.", 403)
+		pitch = connection.execute(
+			"SELECT id FROM pitches WHERE id = ?", (pitch_id,)
+		).fetchone()
+		if not pitch:
+			return api_error("Pitch not found.", 404)
+		connection.execute("DELETE FROM messages WHERE pitch_id = ?", (pitch_id,))
+		connection.execute("DELETE FROM unlocks WHERE pitch_id = ?", (pitch_id,))
+		connection.execute("DELETE FROM pitch_views WHERE pitch_id = ?", (pitch_id,))
+		connection.execute("DELETE FROM pitches WHERE id = ?", (pitch_id,))
+	return jsonify(ok=True)
+
+
 @app.post("/api/signup")
 def signup():
 	try:
@@ -319,8 +491,8 @@ def login():
 		name = text_value(data, "name", maximum=40)
 		password = text_value(data, "password", maximum=256)
 		role = text_value(data, "role", maximum=20)
-		if role not in {"developer", "investor"}:
-			return api_error("Role must be developer or investor.", 400)
+		if role not in {"developer", "investor", "admin"}:
+			return api_error("Role must be developer, investor, or admin.", 400)
 		with database() as connection:
 			user = connection.execute("""
 				SELECT id, name, role, password_hash FROM users
