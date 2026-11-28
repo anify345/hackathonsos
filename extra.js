@@ -12,7 +12,10 @@ window.IdeaHubReady.then(async function (hub) {
   let viewed = page.startsWith('pitch-') && page !== 'pitch-form'
     ? page.replace('pitch-', '')
     : '';
-  if (page === 'idea') viewed = localStorage.getItem('selected') || '';
+  if (page === 'idea') {
+    viewed = new URLSearchParams(location.search).get('id') ||
+      localStorage.getItem('selected') || '';
+  }
   const own = ideas.some(idea => idea.id === viewed && me && idea.owner === me.name);
   if (viewed && !own) {
     try {
