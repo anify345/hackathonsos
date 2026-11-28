@@ -193,7 +193,7 @@ window.IdeaHubReady = (async function () {
     if (!idea) {
       go('browse.html');
     } else {
-      const fee = Math.round(Math.min(1000, Math.max(100, idea.ask * 0.0015)));
+      const fee = Math.round(Math.min(1000, Math.max(100, idea.ask * 0.015)));
       const link = /^https?:\/\//i.test(idea.link)
         ? '<p><a href="' + esc(idea.link) + '" target="_blank" rel="noopener">See the creation</a></p>'
         : '';
