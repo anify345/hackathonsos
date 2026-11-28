@@ -18,14 +18,25 @@ different database file. A persistent Flask session key is generated in
 
 Admin access is not available through public sign-up. After updating the app,
 restart it once so the database schema migration can enable the admin role.
-Promote an existing account in the same SQLite database:
+Create a separate admin account with a password prompt that does not echo the
+password:
+
+```sh
+python -m flask --app main create-admin
+```
+
+The username must be unique and the password must be at least 12 characters.
+The command uses the same database configured by `DATABASE_PATH`. Sign in at
+`/login-admin.html`.
+
+To promote an existing account instead, update its role in the same SQLite
+database:
 
 ```sql
 UPDATE users SET role = 'admin' WHERE name = 'your-existing-username';
 ```
 
-Sign in at `/login-admin.html` with that account's existing credentials. The
-admin panel can manage account roles, delete accounts, and delete pitches.
+The admin panel can manage account roles, delete accounts, and delete pitches.
 Accounts cannot delete themselves or remove the last admin. To change the
 database role manually, use `developer` or `investor` instead of `admin`.
 

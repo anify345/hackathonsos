@@ -1,5 +1,7 @@
 """Flask app and SQLite API for the Hackathon SOS website."""
 import re
+import click
+import getpass
 from authlib.integrations.flask_client import OAuth
 from flask import Flask, abort, jsonify, redirect, request, send_file, session, url_for
 import os
@@ -157,6 +159,39 @@ def initialize_database():
 
 
 initialize_database()
+
+
+@app.cli.command("create-admin")
+def create_admin():
+    """Create an admin account using a hidden local password prompt."""
+    username = input("Admin username: ").strip()
+    if not username or len(username) > 40:
+        raise click.ClickException("Username must be between 1 and 40 characters.")
+    if username.lower().startswith("demo_"):
+        raise click.ClickException("That username is reserved.")
+
+    password = getpass.getpass("Admin password (minimum 12 characters): ")
+    confirmation = getpass.getpass("Confirm admin password: ")
+    if password != confirmation:
+        raise click.ClickException("Passwords do not match.")
+    if len(password) < 12 or len(password) > 256:
+        raise click.ClickException("Password must be between 12 and 256 characters.")
+
+    with database() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        existing = connection.execute(
+            "SELECT 1 FROM users WHERE name = ? COLLATE NOCASE", (username,)
+        ).fetchone()
+        if existing:
+            raise click.ClickException("That username is already in use.")
+        connection.execute("""
+            INSERT INTO users (name, password_hash, email, phone, role)
+            VALUES (?, ?, '', '', 'admin')
+        """, (
+            username,
+            generate_password_hash(password, method="pbkdf2:sha256"),
+        ))
+    click.echo(f"Admin account created: {username}")
 
 
 def api_error(message, status):
